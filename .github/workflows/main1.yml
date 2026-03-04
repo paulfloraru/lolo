@@ -1,0 +1,120 @@
+name: lila
+
+on:
+  schedule:
+    - cron: "*/8 * * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Ubuntu Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ["3.13"]
+
+    env:
+      PY_COLORS: "1"
+      LANG: en_US.UTF-8
+
+    steps:
+    # ----------------------------------------------------
+    # Checkout Repository
+    # ----------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # ----------------------------------------------------
+    # Setup Python
+    # ----------------------------------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    # ----------------------------------------------------
+    # Install Cloudflare WARP
+    # ----------------------------------------------------
+    - name: Install Cloudflare WARP
+      shell: bash
+      run: |
+        echo "Setting up Cloudflare WARP..."
+        sudo apt-get update -y
+        curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | \
+          sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] \
+          https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | \
+          sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+
+        sudo apt-get update -y
+        sudo apt-get install -y --no-install-recommends cloudflare-warp
+
+        sudo warp-cli --accept-tos registration new
+        sudo warp-cli --accept-tos mode warp+doh
+        sudo warp-cli --accept-tos connect
+        sleep 5
+
+    - name: Verify WARP connection
+      run: |
+        echo "Checking WARP connection..."
+        curl -s https://www.cloudflare.com/cdn-cgi/trace | grep "warp=on"
+
+    # ----------------------------------------------------
+    # Install Brave Browser
+    # ----------------------------------------------------
+    - name: Install Brave Browser
+      shell: bash
+      run: |
+        echo "Installing Brave Browser..."
+        sudo apt-get install -y curl
+
+        sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg \
+          https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+
+        echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] \
+          https://brave-browser-apt-release.s3.brave.com/ stable main" | \
+          sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+
+        sudo apt-get update -y
+        sudo apt-get install -y brave-browser
+
+        brave-browser --version
+
+    # ----------------------------------------------------
+    # Set Locale
+    # ----------------------------------------------------
+    - name: Configure Locale
+      run: |
+        sudo apt-get install -y tzdata locales
+        sudo locale-gen en_US.UTF-8
+        sudo update-locale LANG=en_US.UTF-8
+        locale
+
+    # ----------------------------------------------------
+    # Install Python Dependencies
+    # ----------------------------------------------------
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip wheel
+        pip install --upgrade seleniumbase
+        pip install --upgrade pyautogui
+        pip install --upgrade pymongo
+        pip install --upgrade python-xlib
+
+    # ----------------------------------------------------
+    # Install WebDrivers
+    # ----------------------------------------------------
+    - name: Install BraveDriver
+      run: |
+        seleniumbase install chromedriver
+
+    # ----------------------------------------------------
+    # Run Script
+    # ----------------------------------------------------
+    - name: Run lolo.py
+      run: |
+        python lolo.py --brave --incognito --do-not-track --xvfb --screenshot
